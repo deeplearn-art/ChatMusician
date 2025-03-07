@@ -149,11 +149,49 @@ def postprocess_abc(text, conversation_id):
         tmp_midi = f'tmp/{conversation_id}/{tmp_abc.stem}.mid'
         subprocess.run(["abc2midi", str(tmp_abc), "-o", tmp_midi])
 
-        # Convert xml to SVG and WAV using MuseScore (requires MuseScore installed)
+        # Convert MIDI to WAV using FluidSynth
+        from midi2audio import FluidSynth
+        wav_file = f'tmp/{conversation_id}/{tmp_abc.stem}.wav'
+        
+        # Use a specific soundfont - download one if needed
+        soundfont_path = os.environ.get('SOUNDFONT_PATH', '/usr/share/sounds/sf2/FluidR3_GM.sf2')
+        # Check if the soundfont exists
+        if not os.path.exists(soundfont_path):
+            # Try to find an available soundfont
+            possible_paths = [
+                '/usr/share/sounds/sf2/FluidR3_GM.sf2',  # Common Linux location     # Alternative Linux location
+                '/content/default.sf2'                       # Custom location (e.g., downloaded in Colab)
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    soundfont_path = path
+                    break
+            
+            # If no soundfont is found, download one
+            if not os.path.exists(soundfont_path):
+                try:
+                    logging.info("Downloading soundfont...")
+                    soundfont_url = "https://github.com/ROCKNIX/generaluser-gs/raw/refs/heads/main/GeneralUser%20GS%20v1.471.sf2"
+                    subprocess.run(["wget", "-O", "/content/default.sf2", soundfont_url], check=True)
+                    soundfont_path = "/content/default.sf2"
+                except Exception as e:
+                    logging.error(f"Failed to download soundfont: {e}")
+        
+        # Initialize FluidSynth with the soundfont
+        fs = FluidSynth(sound_font=soundfont_path)
+        fs.midi_to_audio(tmp_midi, wav_file)
+        
+        # For visualization, we can use music21 to generate a basic score image
+        # (This part is optional and can be replaced with your preferred solution)
         svg_file = f'tmp/{conversation_id}/{tmp_abc.stem}.svg'
-        wav_file = f'tmp/{conversation_id}/{tmp_abc.stem}.mp3'
-        subprocess.run(["musescore", "-f", "-o", svg_file, tmp_midi])
-        subprocess.run(["musescore", "-f", "-o", wav_file, tmp_midi])
+        try:
+            from music21 import converter
+            midi_score = converter.parse(tmp_midi)
+            midi_score.write('musicxml.png', fp=svg_file[:-4] + '.png')
+            svg_file = svg_file[:-4] + '.png'  # Use PNG instead of SVG
+        except Exception as e:
+            logging.error(f"Failed to generate score image: {e}")
+            svg_file = None  # If visualization fails, continue with just audio
 
         # Remove the tmp file
         # tmp_abc.unlink()
